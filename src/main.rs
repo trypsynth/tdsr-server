@@ -27,12 +27,33 @@ enum UserEvent {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-    let port = if args.len() > 1 {
-        args[1].parse::<u16>().unwrap_or(64111)
-    } else {
-        64111
-    };
+    let args: Vec<String> = env::args().skip(1).collect();
+    if let Some(first_arg) = args.first() {
+        if first_arg == "-" {
+            let tts_stdin = Arc::new(Mutex::new(Tts::default()));
+            let tts_stdin_clone = Arc::clone(&tts_stdin);
+            let stdin = io::stdin();
+            let reader = BufReader::new(stdin.lock());
+            for line in reader.lines() {
+                match line {
+                    Ok(input) => {
+                        if let Some((command, arg)) = input.chars().next().map(|c| (c, &input[1..]))
+                        {
+                            process_command(&command.to_string(), arg, &tts_stdin_clone);
+                        }
+                    }
+                    Err(e) => {
+                        show_error(&format!("Failed to read from stdin: {}", e));
+                    }
+                }
+            }
+            return Ok(());
+        }
+    }
+    let port = args
+        .first()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(64111);
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).map_err(|error| {
         show_error(&format!("Unable to bind: {:?}", error));
         process::exit(1);
@@ -54,23 +75,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     show_error(&format!("Error handling connection: {}", e));
                 }
             });
-        }
-    });
-    let tts_stdin = Arc::clone(&tts);
-    thread::spawn(move || {
-        let stdin = io::stdin();
-        let reader = BufReader::new(stdin.lock());
-        for line in reader.lines() {
-            match line {
-                Ok(input) => {
-                    if let Some((command, arg)) = input.chars().next().map(|c| (c, &input[1..])) {
-                        process_command(&command.to_string(), arg, &tts_stdin);
-                    }
-                }
-                Err(e) => {
-                    show_error(&format!("Failed to read from stdin: {}", e));
-                }
-            }
         }
     });
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
