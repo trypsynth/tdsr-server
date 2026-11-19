@@ -2,14 +2,15 @@
 name = "tdsr-server"
 version = "0.2.0"
 edition = "2024"
-repository = "https://github.com/tspivey/tdsr-server"
-rust-version = "1.85.1"
+repository = "https://github.com/trypsynth/tdsr-server"
+rust-version = "1.90"
 
 [dependencies]
 native-dialog = "0.9.7"
-tao = { version = "0.36.0", default-features = false }
-tray-icon = { version = "0.24.2", default-features = false }
-tts = { version = "0.26.3", features = ["tolk"] }
+# Static, so prism is built into the exe and nothing has to ship beside it.
+prismer = { version = "0.1.6", features = ["static"] }
+tao = { version = "0.37.3", default-features = false }
+tray-icon = { version = "0.26.1", default-features = false }
 
 [profile.release]
 strip = true

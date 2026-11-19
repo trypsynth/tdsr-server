@@ -9,6 +9,7 @@ use std::{
 };
 
 use native_dialog::{DialogBuilder, MessageLevel};
+use prismer::{Backend, Prism};
 use tao::{
 	event::Event,
 	event_loop::{ControlFlow, EventLoopBuilder},
@@ -17,7 +18,6 @@ use tray_icon::{
 	TrayIconBuilder,
 	menu::{Menu, MenuEvent, MenuItem},
 };
-use tts::Tts;
 
 #[derive(Debug)]
 enum UserEvent {
@@ -84,13 +84,11 @@ fn run_tray_application() {
 					}
 				};
 			}
-			Event::UserEvent(UserEvent::MenuEvent(event)) => {
-				if event.id == quit_item.id() {
-					if let Some(icon) = tray_icon.take() {
-						drop(icon);
-					}
-					*control_flow = ControlFlow::Exit;
+			Event::UserEvent(UserEvent::MenuEvent(event)) if event.id == quit_item.id() => {
+				if let Some(icon) = tray_icon.take() {
+					drop(icon);
 				}
+				*control_flow = ControlFlow::Exit;
 			}
 			_ => {}
 		}
@@ -100,29 +98,31 @@ fn run_tray_application() {
 fn handle_connection(connection: TcpStream) -> Result<(), String> {
 	let mut reader = BufReader::new(connection);
 	let mut line = String::new();
-	let mut tts = Tts::default().map_err(|e| format!("Failed to initialize TTS: {e:?}"))?;
+	let prism = Prism::new().map_err(|e| format!("Failed to initialize speech: {e}"))?;
+	// The best backend is the running screen reader, or a speech engine if there isn't one.
+	let backend = prism.create_best().map_err(|e| format!("No speech output is available: {e}"))?;
 	while reader.read_line(&mut line).map_err(|e| format!("Failed to read line: {e}"))? > 0 {
 		let trimmed_line = line.trim_end_matches(['\n', '\r']);
 		if let Some((command, arg)) = trimmed_line.split_at_checked(1) {
-			process_command(command, arg, &mut tts);
+			process_command(command, arg, &backend);
 		}
 		line.clear();
 	}
 	Ok(())
 }
 
-fn process_command(command: &str, arg: &str, tts: &mut Tts) {
+fn process_command(command: &str, arg: &str, backend: &Backend<'_>) {
 	match command {
 		"s" | "l" if !arg.is_empty() => {
 			let cleaned_text = arg.replace('\u{23CE}', " ");
-			speak_in_chunks(&cleaned_text, tts);
+			speak_in_chunks(&cleaned_text, backend);
 		}
-		"x" => stop_speaking(tts),
+		"x" => stop_speaking(backend),
 		_ => {}
 	}
 }
 
-fn speak_in_chunks(text: &str, tts: &mut Tts) {
+fn speak_in_chunks(text: &str, backend: &Backend<'_>) {
 	let mut chunk = String::new();
 	for word in text.split_whitespace() {
 		if chunk.is_empty() {
@@ -131,7 +131,7 @@ fn speak_in_chunks(text: &str, tts: &mut Tts) {
 		}
 		let next_len = chunk.len() + 1 + word.len();
 		if next_len > MAX_LINE_LENGTH {
-			speak(&chunk, tts);
+			speak(&chunk, backend);
 			chunk.clear();
 		} else {
 			chunk.push(' ');
@@ -139,19 +139,19 @@ fn speak_in_chunks(text: &str, tts: &mut Tts) {
 		chunk.push_str(word);
 	}
 	if !chunk.is_empty() {
-		speak(&chunk, tts);
+		speak(&chunk, backend);
 	}
 }
 
-fn speak(text: &str, tts: &mut Tts) {
-	if let Err(e) = tts.speak(text, false) {
-		show_error(&format!("Failed to speak: {e:?}"));
+fn speak(text: &str, backend: &Backend<'_>) {
+	if let Err(e) = backend.speak(text, false) {
+		show_error(&format!("Failed to speak: {e}"));
 	}
 }
 
-fn stop_speaking(tts: &mut Tts) {
-	if let Err(e) = tts.stop() {
-		show_error(&format!("Failed to stop speaking: {e:?}"));
+fn stop_speaking(backend: &Backend<'_>) {
+	if let Err(e) = backend.stop() {
+		show_error(&format!("Failed to stop speaking: {e}"));
 	}
 }
 
